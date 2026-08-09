@@ -1,0 +1,8 @@
+# ModSecurity Unicode Mapping File
+# Este archivo debe contener el mapeo completo de caracteres Unicode.
+# Para producción, descargar del repositorio oficial de ModSecurity:
+# https://github.com/owasp-modsecurity/ModSecurity/blob/v3/master/unicode.mapping/unicode.mapping.1252
+#
+# Versión simplificada para laboratorio:
+#
+28 3A 3B 3C 3D 3E 3F 40 5B 5C 5D 5E 60 7B 7C 7D 7E

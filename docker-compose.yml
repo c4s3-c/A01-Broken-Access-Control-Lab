@@ -1,0 +1,202 @@
+# ProjectFlow Lab - Docker Compose Configuration
+# Laboratorio de Ciberseguridad OWASP A01:2025 (Broken Access Control)
+
+version: '3.8'
+
+services:
+  # ===========================================
+  # BASE DE DATOS Y CACHE
+  # ===========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: projectflow-postgres
+    environment:
+      POSTGRES_USER: projectflow
+      POSTGRES_PASSWORD: ChangeMe_2026!Secure
+      POSTGRES_DB: projectflow_auth
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U projectflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - projectflow-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: projectflow-redis
+    command: redis-server --requirepass RedisSecret_2026!
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - projectflow-network
+
+  # ===========================================
+  # SERVICIOS PRINCIPALES
+  # ===========================================
+  
+  # Auth Service (SEGURO - base del sistema)
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: projectflow-auth-service
+    environment:
+      NODE_ENV: production
+      PORT: 3004
+      DATABASE_URL: postgresql://projectflow:ChangeMe_2026!Secure@postgres:5432/projectflow_auth
+      REDIS_URL: redis://:RedisSecret_2026!@redis:6379/0
+      JWT_SECRET: super-secret-jwt-key-change-in-production-2026
+      JWT_EXPIRES_IN: 15m
+      REFRESH_TOKEN_EXPIRES_IN: 7d
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3004:3004"
+    networks:
+      - projectflow-network
+
+  # User Service (FALLA 2: Race Condition)
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: projectflow-user-service
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://projectflow:ChangeMe_2026!Secure@postgres:5432/projectflow_users
+      REDIS_URL: redis://:RedisSecret_2026!@redis:6379/1
+      AUTH_SERVICE_URL: http://auth-service:3004
+      TRUST_PROXY: "true"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    ports:
+      - "3001:3001"
+    networks:
+      - projectflow-network
+
+  # Project Service (FALLA 3: Header Trust)
+  project-service:
+    build:
+      context: ./services/project-service
+      dockerfile: Dockerfile
+    container_name: projectflow-project-service
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      DATABASE_URL: postgresql://projectflow:ChangeMe_2026!Secure@postgres:5432/projectflow_projects
+      REDIS_URL: redis://:RedisSecret_2026!@redis:6379/2
+      AUTH_SERVICE_URL: http://auth-service:3004
+      USER_SERVICE_URL: http://user-service:3001
+      TRUST_PROXY: "true"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    ports:
+      - "3002:3002"
+    networks:
+      - projectflow-network
+
+  # GraphQL API (FALLA 1: Over-fetching + Introspection)
+  graphql-api:
+    build:
+      context: ./services/graphql-api
+      dockerfile: Dockerfile
+    container_name: projectflow-graphql-api
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://projectflow:ChangeMe_2026!Secure@postgres:5432/projectflow_projects
+      INTROSPECTION_ENABLED: "true"
+      PLAYGROUND_ENABLED: "true"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    networks:
+      - projectflow-network
+
+  # ===========================================
+  # API GATEWAY (FALLA 3: Header Injection)
+  # ===========================================
+  api-gateway:
+    build:
+      context: ./gateway/custom-gateway
+      dockerfile: Dockerfile
+    container_name: projectflow-api-gateway
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      JWT_SECRET: super-secret-jwt-key-change-in-production-2026
+      RATE_LIMIT_WINDOW: 60000
+      RATE_LIMIT_MAX: 100
+      LOG_LEVEL: info
+      AUTH_SERVICE_URL: http://auth-service:3004
+      USER_SERVICE_URL: http://user-service:3001
+      PROJECT_SERVICE_URL: http://project-service:3002
+      GRAPHQL_SERVICE_URL: http://graphql-api:4000
+    depends_on:
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      project-service:
+        condition: service_started
+      graphql-api:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    networks:
+      - projectflow-network
+
+  # ===========================================
+  # NGINX + MODSECURITY WAF
+  # ===========================================
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: projectflow-nginx
+    depends_on:
+      api-gateway:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - projectflow-network
+
+networks:
+  projectflow-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
